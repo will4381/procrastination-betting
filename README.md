@@ -1,6 +1,6 @@
 ## Running:
 
-GUI doesn't work in VSCode for some reason so you need to CD into the source folder and run `main.py` via a stand-alone terminal. You will likely need to install the nescessary packages in your terminal via, `python3 -m pip install tkinter ttkbootstrap matplotlib setuptools`
+GUI doesn't work in VSCode for some reason so you need to CD into the source folder and run `main.py` via a stand-alone terminal. You will likely need to install the nescessary packages in your terminal via, `python3 -m pip install tkinter ttkbootstrap matplotlib setuptools`, might need to run `brew install tcl-tk`
 
 ## Problems/Fixes:
 
