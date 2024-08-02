@@ -4,7 +4,7 @@ GUI doesn't work in VSCode for some reason so you need to CD into the source fol
 
 ## Problems/Fixes:
 
-Some problems; added users are overwritten when a simulation is run, betting outside of the simulation needs work, scrolling is weird and some graph data is cutoff, will work on adding more insight into the calculations, needs better simulation or 'mock' UI to simulate an actual app, overall more insight into the algo behaviour and understanding. There is also probably some iffy shit in the odd calculations and its integration with the sim, I havent looked at any of the data yet. 
+Some problems; betting outside of the simulation needs work, will work on adding more insight into the calculations, needs better simulation or 'mock' UI to simulate an actual app, overall more insight into the algo behaviour and understanding. There is also probably some iffy shit in the odd calculations and its integration with the sim, I havent looked at any of the data yet. 
 
 ## Odds Calculation: 
 
@@ -22,5 +22,3 @@ This is bound to change as I find more optimal strategies to ensure gains on win
 ## Simulation:
 
 The simulation progresses day by day, adjusting the completion rates of assignments and bets based on a normal distribution. At the end of the simulation period, the total pool, house take, and prize pool are calculated, and winnings are distributed to users based on the completion of their bets.
-
-## Leave of Absence, Will Return Soon.
