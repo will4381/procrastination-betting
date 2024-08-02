@@ -5,10 +5,9 @@ from ttkbootstrap.dialogs import Messagebox
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from datetime import datetime
+from datetime import datetime, timedelta
 from source.algo import Procrast, Assignment, User, Bet
 import sys
-import os
 
 def setup_styles(style):
     style.configure("Sidebar.TFrame", background="#F2F2F7")
@@ -64,14 +63,11 @@ class ProcrastUI(ttk.Window):
             self.iconphoto(True, icon_tk)
             self.createcommand('tk::mac::Quit', self.quit)
 
-        self.create_widgets()
-
-    def create_widgets(self):
         self.grid_columnconfigure(2, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
         self.sidebar = Sidebar(self, width=190)
-        self.sidebar.grid(row=0, column=0, sticky="nsew")
+        self.sidebar.grid(row=0, column=0, sticky="ns")
 
         self.divider = ttk.Separator(self, orient="vertical")
         self.divider.grid(row=0, column=1, sticky="ns")
@@ -83,9 +79,11 @@ class ProcrastUI(ttk.Window):
 
         self.content_frame = ttk.Frame(self.main_frame, style="Content.TFrame")
         self.content_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        self.content_frame.grid_rowconfigure(0, weight=1)
+        self.content_frame.grid_columnconfigure(0, weight=1)
 
         self.frames = {}
-        for F in (DashboardFrame, AssignmentsFrame, BettingFrame, UsersFrame, SimulationFrame):
+        for F in (DashboardFrame, AssignmentsFrame, BettingFrame, UsersFrame, SimulationFrame, SimulationResultsFrame):
             frame = F(self.content_frame, self)
             self.frames[F.__name__] = frame
             frame.grid(row=0, column=0, sticky="nsew")
@@ -118,7 +116,8 @@ class Sidebar(ttk.Frame):
             ("Assignments", "📝", "AssignmentsFrame"),
             ("Betting", "🎲", "BettingFrame"),
             ("Users", "👥", "UsersFrame"),
-            ("Simulation", "🔬", "SimulationFrame")
+            ("Simulation", "🔬", "SimulationFrame"),
+            ("Results", "📈", "SimulationResultsFrame")
         ]
 
         for text, emoji, frame in options:
@@ -179,9 +178,26 @@ class DashboardFrame(ttk.Frame):
 
         stats_frame.grid_columnconfigure((0,1,2,3), weight=1)
 
-        note_label = ttk.Label(self, text="Note: Betting odds are predictions based on current bets and not guaranteed. A 5% house take is applied to all bets with ample bettors.", 
+        note_label = ttk.Label(self, text="Note: Betting odds are predictions based on current bets and not guaranteed. House take is applied to all bets with ample bettors.", 
                                font=("SF Pro Text", 12), wraplength=600, justify="left")
         note_label.pack(anchor="w", pady=(20, 0))
+
+        reset_button = create_button(
+            self,
+            "Reset Simulation",
+            self.reset_simulation,
+            width=15
+        )
+        reset_button.pack(anchor="w", pady=(20, 0))
+
+    def reset_simulation(self):
+        self.controller.procrast.reset()
+        self.controller.frames['AssignmentsFrame'].update_assignment_list()
+        self.controller.frames['BettingFrame'].update_user_menu()
+        self.controller.frames['BettingFrame'].update_assignment_menu()
+        self.controller.frames['UsersFrame'].update_user_list()
+        self.controller.frames['SimulationResultsFrame'].clear_results()
+        Messagebox.show_info("Reset Complete", "The simulation has been reset.")
 
 class AssignmentsFrame(ttk.Frame):
     def __init__(self, parent, controller):
@@ -291,7 +307,8 @@ class BettingFrame(ttk.Frame):
         amount = float(self.bet_amount.get())
 
         if user and assignment:
-            bet = self.controller.procrast.place_bet(user, amount, datetime.now(), [assignment])
+            current_date = self.controller.procrast.current_date
+            bet = self.controller.procrast.place_bet(user, amount, current_date, [assignment])
             if bet:
                 Messagebox.show_info("Bet Placed", f"Bet of ${amount} placed on {assignment.name}")
                 self.update_odds_chart()
@@ -418,6 +435,11 @@ class SimulationFrame(ttk.Frame):
         self.completion_rate_std.pack(fill="x", padx=10, pady=(0, 10))
         self.completion_rate_std.insert(0, "0.1")
 
+        ttk.Label(self, text="House Take Percentage (0-100):").pack(anchor="w", padx=10, pady=(10, 5))
+        self.house_take = ttk.Entry(self, width=30, font=("SF Pro Text", 13))
+        self.house_take.pack(fill="x", padx=10, pady=(0, 10))
+        self.house_take.insert(0, str(self.controller.procrast.house_take * 100))
+
         run_simulation_button = create_button(
             self, 
             "Run Simulation", 
@@ -426,11 +448,53 @@ class SimulationFrame(ttk.Frame):
         )
         run_simulation_button.pack(anchor="w", padx=10, pady=20)
 
-        self.results_frame = ttk.Frame(self, style="TFrame")
-        self.results_frame.pack(fill="both", expand=True, padx=10, pady=20)
+    def run_simulation(self):
+        num_users = int(self.num_users.get())
+        num_assignments = int(self.num_assignments.get())
+        duration = self.sim_duration.get()
+        completion_rate_mean = float(self.completion_rate_mean.get())
+        completion_rate_std = float(self.completion_rate_std.get())
+        house_take = float(self.house_take.get()) / 100
 
-        self.canvas = tk.Canvas(self.results_frame)
-        self.scrollbar = ttk.Scrollbar(self.results_frame, orient="vertical", command=self.canvas.yview)
+        self.controller.procrast.house_take = house_take
+        self.controller.procrast.generate_random_data(num_users, num_assignments, 100, 1000, 1, 30)
+
+        if duration == 'week':
+            days = 7
+        elif duration == 'month':
+            days = 30
+        elif duration == '3month':
+            days = 90
+        elif duration == 'year':
+            days = 365
+
+        for day in range(days):
+            self.controller.procrast.simulate_day(completion_rate_mean, completion_rate_std)
+
+        house_take, remaining_pool = self.controller.procrast.finalize_simulation()
+        daily_stats = self.controller.procrast.get_daily_stats()
+
+        self.controller.frames['SimulationResultsFrame'].display_results(house_take, remaining_pool, daily_stats)
+        self.controller.show_frame("SimulationResultsFrame")
+        
+        self.controller.frames['UsersFrame'].update_user_list()
+        self.controller.frames['AssignmentsFrame'].update_assignment_list()
+        self.controller.frames['BettingFrame'].update_user_menu()
+        self.controller.frames['BettingFrame'].update_assignment_menu()
+
+class SimulationResultsFrame(ttk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent, style="Content.TFrame")
+        self.controller = controller
+
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        self.label = ttk.Label(self, text="Simulation Results", font=("SF Pro Display", 24, "bold"))
+        self.label.grid(row=0, column=0, sticky="w", pady=(0, 20), padx=10)
+
+        self.canvas = tk.Canvas(self)
+        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
         self.scrollable_frame = ttk.Frame(self.canvas)
 
         self.scrollable_frame.bind(
@@ -443,30 +507,19 @@ class SimulationFrame(ttk.Frame):
         self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
+        self.canvas.grid(row=1, column=0, sticky="nsew", padx=(10, 0), pady=(0, 10))
+        self.scrollbar.grid(row=1, column=1, sticky="ns", pady=(0, 10))
 
-    def run_simulation(self):
-        num_users = int(self.num_users.get())
-        num_assignments = int(self.num_assignments.get())
-        duration = self.sim_duration.get()
-        completion_rate_mean = float(self.completion_rate_mean.get())
-        completion_rate_std = float(self.completion_rate_std.get())
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
 
-        self.controller.procrast.generate_random_data(num_users, num_assignments, 100, 1000, 1, 30)
-        house_take, remaining_pool, daily_stats = self.controller.procrast.simulate(duration, completion_rate_mean, completion_rate_std)
-
-        self.display_results(house_take, remaining_pool, daily_stats)
-        self.controller.frames['UsersFrame'].update_user_list()
-        self.controller.frames['AssignmentsFrame'].update_assignment_list()
-        self.controller.frames['BettingFrame'].update_user_menu()
-        self.controller.frames['BettingFrame'].update_assignment_menu()
+    def _on_mousewheel(self, event):
+        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
     def display_results(self, house_take, remaining_pool, daily_stats):
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
 
-        results_text = tk.Text(self.scrollable_frame, height=10, font=("SF Pro Text", 13), 
+        results_text = tk.Text(self.scrollable_frame, height=10, width=80, font=("SF Pro Text", 13), 
                                bg="white", highlightthickness=0, bd=0)
         results_text.pack(fill="x", padx=10, pady=10)
 
@@ -477,10 +530,15 @@ class SimulationFrame(ttk.Frame):
         for user in sorted(self.controller.procrast.users, key=lambda x: x.balance, reverse=True)[:5]:
             results += f"{user.name}: ${user.balance:.2f}\n"
 
+        detailed_stats = self.controller.procrast.get_detailed_statistics()
+        results += f"\nDetailed Statistics:\n"
+        for key, value in detailed_stats.items():
+            results += f"{key.replace('_', ' ').title()}: {value:.2f}\n"
+
         results_text.insert("1.0", results)
 
-        fig = Figure(figsize=(12, 8), dpi=100)
-        gs = fig.add_gridspec(2, 2)
+        fig = Figure(figsize=(16, 24), dpi=100)
+        gs = fig.add_gridspec(3, 1, height_ratios=[1, 1, 1])
 
         # Completion rate over time
         ax1 = fig.add_subplot(gs[0, 0])
@@ -490,10 +548,10 @@ class SimulationFrame(ttk.Frame):
         ax1.set_title("Completion Rate Over Time")
         ax1.set_xlabel("Date")
         ax1.set_ylabel("Completion Rate")
-        ax1.tick_params(axis='x', labelrotation=45)
+        ax1.tick_params(axis='x', rotation=45)
 
         # Total bets vs Completed bets
-        ax2 = fig.add_subplot(gs[0, 1])
+        ax2 = fig.add_subplot(gs[1, 0])
         total_bets = [stat['total_bets'] for stat in daily_stats]
         completed_bets = [stat['completed_bets'] for stat in daily_stats]
         ax2.bar(dates, total_bets, label="Total Bets", alpha=0.5, color='#5AC8FA')
@@ -502,22 +560,29 @@ class SimulationFrame(ttk.Frame):
         ax2.set_xlabel("Date")
         ax2.set_ylabel("Number of Bets")
         ax2.legend()
-        ax2.tick_params(axis='x', labelrotation=45)
+        ax2.tick_params(axis='x', rotation=45)
 
         # User balance distribution
-        ax3 = fig.add_subplot(gs[1, :])
+        ax3 = fig.add_subplot(gs[2, 0])
         balances = [user.balance for user in self.controller.procrast.users]
         ax3.hist(balances, bins=30, color='#FF9500')
         ax3.set_title("User Balance Distribution")
         ax3.set_xlabel("Balance")
         ax3.set_ylabel("Number of Users")
 
-        fig.tight_layout()
+        fig.tight_layout(pad=4.0)
 
         canvas = FigureCanvasTkAgg(fig, master=self.scrollable_frame)
         canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+        canvas_widget = canvas.get_tk_widget()
+        canvas_widget.pack(fill="both", expand=True, padx=10, pady=10)
 
+        self.canvas.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def clear_results(self):
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
         self.canvas.update_idletasks()
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
